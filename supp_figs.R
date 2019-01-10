@@ -1,9 +1,5 @@
-library('ggpubr')
-library('scales')
-library('grDevices')
-library('cowplot')
+source('constants.R')
 
-theme_classic()
 model_colors = c(
   RF="#1f77b4",
   VQSR="#ff7f0e"
@@ -20,8 +16,8 @@ n_trios = c(
 
 # True = snv, False = indel
 cutoffs = c(
-  'True'=90,
-  'False'=82
+  'TRUE'=90,
+  'FALSE'=82
 )
 
 plot_titles = c(
@@ -34,15 +30,15 @@ plot_titles = c(
 labels = c('a','b','c','d','e','f','g','h','i','j','k','l','m')
 
 # Load data
-autosomes = read_tsv('autosomes.tsv')
-chr20 = read_tsv('chr20.tsv')
-concordance = read_tsv('concordance.tsv')
-
+autosomes = read_tsv('data/autosomes.tsv')
+chr20 = read_tsv('data/chr20.tsv')
+concordance = read_tsv('data/concordance.tsv')
 
 # General format
 format_supp_plot = function(p, title=NA){
   p = p +
     scale_color_manual(name='', values=model_colors, labels=model_names) +
+    theme_classic() +
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank(),
           axis.title.x=element_blank(),
@@ -112,37 +108,39 @@ get_legend_row = function(){
 
 ## PR Plot
 pr_plot = function(same_scale = F, export=F){
-  truth_samples = c('NA12878'='NA12878', 'syndip'='Synthetic diploid')
+  truth_samples = c('NA12878' = 'NA12878', 'syndip' = 'Synthetic diploid')
   rows = list(get_header_row(2))
   for(s in names(truth_samples)){
     row=list()
     for(x in c('exomes', 'genomes')){
-      for(y in c('True',  'False')){
+      for(y in c(TRUE, FALSE)){
         plot_data = concordance %>%
           filter(data_type == x & 
                    snv == y & 
                    rank_name == "truth_sample_rank" & 
-                   truth_sample ==  s)
+                   truth_sample == s)
         p =  ggplot(plot_data,  aes(x=recall, y=precision, col=model)) +
           geom_point() + 
           geom_point(data=plot_data %>% filter(model=='RF'), aes(x=recall, y=precision, col=model)) +
-          geom_vline(xintercept = plot_data %>% filter(model == 'RF' & bin==cutoffs[y]) %$% recall, linetype='dashed') +
-          geom_hline(yintercept = plot_data %>% filter(model == 'RF' & bin==cutoffs[y]) %$% precision, linetype='dashed')
+          geom_vline(xintercept = plot_data %>% filter(model == 'RF' & bin==cutoffs[as.character(y)]) %$% recall, 
+                     linetype='dashed') +
+          geom_hline(yintercept = plot_data %>% filter(model == 'RF' & bin==cutoffs[as.character(y)]) %$% precision, 
+                     linetype='dashed')
         p = format_supp_plot(p)
-       row = c(row,list(format_concordance(p, same_scale)))
+        row = c(row,list(format_concordance(p, same_scale)))
       }
     }
     rows = c(rows,
              list(get_plot_row(row,
-                          paste(truth_samples[s],'recall'), 
-                          paste(truth_samples[s],'\nprecision',sep=''),
-                          labels=labels[(4*(length(rows)-1)+1):(4*(length(rows)-1)+4)]
-                          )))
+                               paste(truth_samples[s],'recall'), 
+                               paste(truth_samples[s],'\nprecision',sep=''),
+                               labels=labels[(4*(length(rows)-1)+1):(4*(length(rows)-1)+4)]
+             )))
   }
   rows = c(rows, list(get_legend_row()))
   plot = ggarrange(plotlist=rows, nrow=length(rows), ncol = 1, heights = c(0.1, 1, 1, 0.2))
   if(export){
-    pdf("ed2_common_variants_metrics.pdf", width = 8, height = 5)
+    pdf("extended_data_figure2.pdf", width = 8, height = 5)
     print(plot)
     dev.off()
   }
@@ -151,7 +149,7 @@ pr_plot = function(same_scale = F, export=F){
 
 # Rare variants metrics plots
 rare_variants_metrics_plot = function(export=F){
-
+  
   #dnms
   dnms = autosomes %>%
     filter(rank_id == 'rank') %>%
@@ -163,14 +161,14 @@ rare_variants_metrics_plot = function(export=F){
   
   dnm_plots=list()
   for(x in c('exomes', 'genomes')){
-    for(y in c('True',  'False')){
+    for(y in c(TRUE, FALSE)){
       plot_data = dnms %>%
         filter(data_type == x & 
                  snv == y)
       p = ggplot(plot_data, aes(bin, cum_dnm, col=model))  + 
         geom_point() + 
         geom_point(data=plot_data %>% filter(model=='RF'), aes(bin, cum_dnm, col=model)) +
-        geom_vline(xintercept=cutoffs[y], linetype='dashed')
+        geom_vline(xintercept=cutoffs[as.character(y)], linetype='dashed')
       dnm_plots = c(dnm_plots,
                     list(format_supp_plot(p))
       )
@@ -180,7 +178,7 @@ rare_variants_metrics_plot = function(export=F){
                          'Model percentile', 
                          bquote(atop(~ italic('De novo') ~ 'calls per child', '(cumulative)')), 
                          labels = labels[1:4]
-                         )
+  )
   
   #trans singletons
   trans_singletons = chr20 %>%
@@ -193,12 +191,12 @@ rare_variants_metrics_plot = function(export=F){
   
   trans_singletons_plots=list()
   for(x in c('exomes', 'genomes')){
-    for(y in c('True',  'False')){
+    for(y in c(TRUE, FALSE)){
       plot_data = trans_singletons %>% filter(data_type == x & snv == y)
       p = ggplot(plot_data, aes(bin, cum_trans_singletons, col=model))  + 
         geom_point() + 
         geom_point(data=plot_data %>% filter(model=='RF'), aes(bin, cum_trans_singletons, col=model)) +
-        geom_vline(xintercept=cutoffs[y], linetype='dashed')
+        geom_vline(xintercept=cutoffs[as.character(y)], linetype='dashed')
       trans_singletons_plots=  c(trans_singletons_plots,
                                  list(format_supp_plot(p))
       )
@@ -208,7 +206,7 @@ rare_variants_metrics_plot = function(export=F){
                                       'Model percentile', 
                                       'Transmitted singletons\n(chrom 20, cumulative)', 
                                       labels = labels[5:8]
-                                      )
+  )
   
   #trans singletons
   validated_dnm = autosomes %>%
@@ -221,22 +219,22 @@ rare_variants_metrics_plot = function(export=F){
   
   validated_dnm_plots=list()
   for(x in c('exomes')){
-    for(y in c('True',  'False')){
+    for(y in c(TRUE, FALSE)){
       plot_data = validated_dnm %>% filter(data_type == x & snv == y)
       p = ggplot(plot_data, aes(bin, cum_validated_de_novos, col=model))  + 
         geom_point() + 
         geom_point(data=plot_data %>% filter(model=='RF'), aes(bin, cum_validated_de_novos, col=model)) +
-        geom_vline(xintercept=cutoffs[y], linetype='dashed')
+        geom_vline(xintercept=cutoffs[as.character(y)], linetype='dashed')
       validated_dnm_plots=  c(validated_dnm_plots,
-                                 list(format_supp_plot(p))
+                              list(format_supp_plot(p))
       )
     }
   }
   validated_dnm_row = get_plot_row(validated_dnm_plots, 
-                                      'Model percentile', 
-                                      bquote(atop('Validated' ~ italic('de novo') ~ 'mutations','(cumulative)')), 
-                                      labels = labels[9:10]
-                                   )
+                                   'Model percentile', 
+                                   bquote(atop('Validated' ~ italic('de novo') ~ 'mutations','(cumulative)')), 
+                                   labels = labels[9:10]
+  )
   plot = ggarrange(
     get_header_row(2),
     dnm_row, 
@@ -248,7 +246,7 @@ rare_variants_metrics_plot = function(export=F){
     heights = c(0.1, 1, 1, 1, 0.2))
   
   if(export){
-    pdf("ed3_rare_variants_metrics.pdf", width = 8, height = 7)
+    pdf("extended_data_figure3.pdf", width = 8, height = 7)
     print(plot)
     dev.off()
   }
