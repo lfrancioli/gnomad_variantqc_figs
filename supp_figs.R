@@ -1,6 +1,7 @@
 library('ggpubr')
 library('scales')
 library('grDevices')
+library('cowplot')
 
 theme_classic()
 model_colors = c(
@@ -38,44 +39,38 @@ chr20 = read_tsv('chr20.tsv')
 concordance = read_tsv('concordance.tsv')
 
 
-
 # General format
-format_supp_plot = function(p, title=NA, legend=F){
+format_supp_plot = function(p, title=NA){
   p = p +
     scale_color_manual(name='', values=model_colors, labels=model_names) +
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank(),
           axis.title.x=element_blank(),
-          axis.title.y=element_blank())
-    p = p + ggtitle("")
-  
-  if(!legend){
-    p = p + theme(legend.position = "None")
-  }else{
-    p = p + theme(legend.text=element_text(size=12))
-  }
-  
+          axis.title.y=element_blank()) + 
+    ggtitle("") +
+    theme(legend.position = "None")
   return(p)
 }
 
 # Concordance plots format
 format_concordance = function(p, same_scale){
   p =  p +
-    scale_x_continuous(labels=percent_format(accuracy = 1))
+    scale_x_continuous(labels=percent_format(accuracy = 1)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
   
   if(same_scale){
     p = p +
       scale_y_continuous(labels=percent_format(accuracy = 1),  limits = c(0.8, 1.0))
   } else {
     p = p +
-      scale_y_continuous(labels=percent)
+      scale_y_continuous(labels=percent_format(accuracy = .1))
   }
   return(p)
 }
 
 # Get a row
-get_plot_row = function(plots, xlabel, ylabel, labels, legend=F){
-  plot = ggarrange(plotlist=plots, nrow=1, ncol=4, common.legend = legend,labels=labels)
+get_plot_row = function(plots, xlabel, ylabel, labels){
+  plot = ggarrange(plotlist=plots, nrow=1, ncol=4,  labels=labels)
   return( plot %>%  
             annotate_figure(
               left = text_grob(ylabel, rot = 90),
@@ -100,8 +95,23 @@ get_header_row = function(nrows_y_label){
   return(row)
 }
 
+get_legend_row = function(){
+  p = ggplot(data.frame(x=c(0,1), y=c(0,1), model=c('RF','VQSR'))
+             ,aes(x,y,col=model)) +  
+    geom_point() +
+    scale_color_manual(name='', values=model_colors, labels=model_names) +
+    theme(legend.position="bottom")
+  plot = ggarrange(get_legend(p))
+  plot = ggarrange(plotlist = list(ggplot() + geom_blank(), get_legend(p),  ggplot() + geom_blank()), ncol=3)
+  
+  return(plot %>% annotate_figure(
+    left = text_grob("\n", rot = 90)
+  )
+  )
+}
+
 ## PR Plot
-pr_plot = function(same_scale = F){
+pr_plot = function(same_scale = F, export=F){
   truth_samples = c('NA12878'='NA12878', 'syndip'='Synthetic diploid')
   rows = list(get_header_row(2))
   for(s in names(truth_samples)){
@@ -113,12 +123,12 @@ pr_plot = function(same_scale = F){
                    snv == y & 
                    rank_name == "truth_sample_rank" & 
                    truth_sample ==  s)
-        p = plot_data %>%
-          ggplot(aes(recall, precision, col=model)) +
+        p =  ggplot(plot_data,  aes(x=recall, y=precision, col=model)) +
           geom_point() + 
+          geom_point(data=plot_data %>% filter(model=='RF'), aes(x=recall, y=precision, col=model)) +
           geom_vline(xintercept = plot_data %>% filter(model == 'RF' & bin==cutoffs[y]) %$% recall, linetype='dashed') +
           geom_hline(yintercept = plot_data %>% filter(model == 'RF' & bin==cutoffs[y]) %$% precision, linetype='dashed')
-        p = format_supp_plot(p, legend = s==names(truth_samples[1]))
+        p = format_supp_plot(p)
        row = c(row,list(format_concordance(p, same_scale)))
       }
     }
@@ -126,14 +136,21 @@ pr_plot = function(same_scale = F){
              list(get_plot_row(row,
                           paste(truth_samples[s],'recall'), 
                           paste(truth_samples[s],'\nprecision',sep=''),
-                          labels=labels[(4*(length(rows)-1)+1):(4*(length(rows)-1)+4)], 
-                          legend=s==names(truth_samples[1]))))
+                          labels=labels[(4*(length(rows)-1)+1):(4*(length(rows)-1)+4)]
+                          )))
   }
-  return(ggarrange(plotlist=rows, nrow=length(rows), ncol = 1, heights = c(0.1, 1.2, 1)))
+  rows = c(rows, list(get_legend_row()))
+  plot = ggarrange(plotlist=rows, nrow=length(rows), ncol = 1, heights = c(0.1, 1, 1, 0.2))
+  if(export){
+    pdf("ed2_common_variants_metrics.pdf", width = 8, height = 5)
+    print(plot)
+    dev.off()
+  }
+  return(plot)
 }
 
 # Rare variants metrics plots
-rare_variants_metrics_plot = function(){
+rare_variants_metrics_plot = function(export=F){
 
   #dnms
   dnms = autosomes %>%
@@ -150,19 +167,20 @@ rare_variants_metrics_plot = function(){
       plot_data = dnms %>%
         filter(data_type == x & 
                  snv == y)
-      p =  plot_data %>%
-        ggplot(aes(bin, cum_dnm, col=model))  + 
-        geom_point() + geom_vline(xintercept=cutoffs[y], linetype='dashed')
+      p = ggplot(plot_data, aes(bin, cum_dnm, col=model))  + 
+        geom_point() + 
+        geom_point(data=plot_data %>% filter(model=='RF'), aes(bin, cum_dnm, col=model)) +
+        geom_vline(xintercept=cutoffs[y], linetype='dashed')
       dnm_plots = c(dnm_plots,
-                    list(format_supp_plot(p, legend = T))
+                    list(format_supp_plot(p))
       )
     }
   }
   dnm_row = get_plot_row(dnm_plots, 
                          'Model percentile', 
-                         bquote(atop('Number of' ~ italic('de novo') ~ 'calls', 'per child (cumulative)')), 
-                         labels = labels[1:4],
-                         legend = T)
+                         bquote(atop(~ italic('De novo') ~ 'calls per child', '(cumulative)')), 
+                         labels = labels[1:4]
+                         )
   
   #trans singletons
   trans_singletons = chr20 %>%
@@ -176,11 +194,11 @@ rare_variants_metrics_plot = function(){
   trans_singletons_plots=list()
   for(x in c('exomes', 'genomes')){
     for(y in c('True',  'False')){
-      p = trans_singletons %>%
-        filter(data_type == x & 
-                 snv == y) %>%
-        ggplot(aes(bin, cum_trans_singletons, col=model))  + 
-        geom_point() + geom_vline(xintercept=cutoffs[y], linetype='dashed')
+      plot_data = trans_singletons %>% filter(data_type == x & snv == y)
+      p = ggplot(plot_data, aes(bin, cum_trans_singletons, col=model))  + 
+        geom_point() + 
+        geom_point(data=plot_data %>% filter(model=='RF'), aes(bin, cum_trans_singletons, col=model)) +
+        geom_vline(xintercept=cutoffs[y], linetype='dashed')
       trans_singletons_plots=  c(trans_singletons_plots,
                                  list(format_supp_plot(p))
       )
@@ -188,9 +206,9 @@ rare_variants_metrics_plot = function(){
   }
   trans_singletons_row = get_plot_row(trans_singletons_plots, 
                                       'Model percentile', 
-                                      'Number of transmitted singletons\n(chromosome 20, cumulative)', 
-                                      labels = labels[5:8],
-                                      legend = F)
+                                      'Transmitted singletons\n(chrom 20, cumulative)', 
+                                      labels = labels[5:8]
+                                      )
   
   #trans singletons
   validated_dnm = autosomes %>%
@@ -204,11 +222,11 @@ rare_variants_metrics_plot = function(){
   validated_dnm_plots=list()
   for(x in c('exomes')){
     for(y in c('True',  'False')){
-      p = validated_dnm %>%
-        filter(data_type == x & 
-                 snv == y) %>%
-        ggplot(aes(bin, cum_validated_de_novos, col=model))  + 
-        geom_point() + geom_vline(xintercept=cutoffs[y], linetype='dashed')
+      plot_data = validated_dnm %>% filter(data_type == x & snv == y)
+      p = ggplot(plot_data, aes(bin, cum_validated_de_novos, col=model))  + 
+        geom_point() + 
+        geom_point(data=plot_data %>% filter(model=='RF'), aes(bin, cum_validated_de_novos, col=model)) +
+        geom_vline(xintercept=cutoffs[y], linetype='dashed')
       validated_dnm_plots=  c(validated_dnm_plots,
                                  list(format_supp_plot(p))
       )
@@ -216,16 +234,24 @@ rare_variants_metrics_plot = function(){
   }
   validated_dnm_row = get_plot_row(validated_dnm_plots, 
                                       'Model percentile', 
-                                      bquote(atop('Number of validated' ~ italic('de novo') ~ 'mutations','(cumulative)')), 
-                                      labels = labels[9:10],
-                                      legend = F)
-  
-  return(ggarrange(
+                                      bquote(atop('Validated' ~ italic('de novo') ~ 'mutations','(cumulative)')), 
+                                      labels = labels[9:10]
+                                   )
+  plot = ggarrange(
     get_header_row(2),
     dnm_row, 
     trans_singletons_row, 
-    validated_dnm_row, 
-    nrow = 4, 
+    validated_dnm_row,
+    get_legend_row(),
+    nrow = 5, 
     ncol = 1,
-    heights = c(0.1, 1.2, 1, 1)))
+    heights = c(0.1, 1, 1, 1, 0.2))
+  
+  if(export){
+    pdf("ed3_rare_variants_metrics.pdf", width = 8, height = 7)
+    print(plot)
+    dev.off()
+  }
+  
+  return(plot)
 }
